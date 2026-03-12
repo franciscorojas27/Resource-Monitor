@@ -58,13 +58,12 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/pidusage": "^2.0.5",
-    "@types/ps-list": "^6.2.1",
-    "@types/systeminformation": "^3.54.1",
     "@types/vscode": "^1.110.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.3",
     "ts-loader": "^9.5.4",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "webpack": "^5.105.3",
@@ -72,7 +71,6 @@
   },
   "dependencies": {
     "pidusage": "^4.0.1",
-    "ps-list": "^9.0.0",
     "systeminformation": "^5.31.4"
   }
 }

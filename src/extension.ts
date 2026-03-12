@@ -15,10 +15,10 @@ export function activate(context: vscode.ExtensionContext) {
     log.show();
     log.appendLine("Extension Started...");
 
-    const provider = new DotNetMonitorProvider(context.extensionUri, log);
+    const provider = new DotNetMonitorProvider(log);
     context.subscriptions.push(vscode.window.registerWebviewViewProvider('dotnet-monitor-view', provider));
 
-    vscode.debug.onDidStartDebugSession((session) => {
+    vscode.debug.onDidStartDebugSession(() => {
         setTimeout(() => {
             provider.autoAttachProject();
             vscode.commands.executeCommand('dotnet-monitor-view.focus');
@@ -34,13 +34,10 @@ class DotNetMonitorProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _interval?: NodeJS.Timeout;
     private _psProcess?: ChildProcess;
-    private _currentPid?: number;
-    private _currentName?: string;
     private _prevNet?: { rx: number; tx: number; ts: number; iface: string };
     private _prevDisk?: { w: number; r: number; ts: number };
 
     constructor(
-        private readonly _extensionUri: vscode.Uri,
         private readonly _log: vscode.OutputChannel
     ) {}
 
@@ -73,8 +70,6 @@ class DotNetMonitorProvider implements vscode.WebviewViewProvider {
             this._psProcess = undefined;
         }
 
-        this._currentPid = undefined;
-        this._currentName = undefined;
         this._view?.webview.postMessage({ type: 'status', msg: status, clear: true });
     }
 
@@ -85,8 +80,6 @@ class DotNetMonitorProvider implements vscode.WebviewViewProvider {
         }
         this.stop('Changing process...');
         this._log.appendLine(`Monitoring PID: ${pid} (${name})`);
-        this._currentPid = pid;
-        this._currentName = name;
 
         this._view?.webview.postMessage({ type: 'status', msg: `LIVE · ${name} (PID ${pid})` });
 
@@ -182,7 +175,7 @@ while($true) {
                     memVal = stats.memory;
                 } catch (err: any) {
                     const procs = await si.processes();
-                    const procObj = procs.list.find(p => p.pid === pid);
+                    const procObj = procs.list.find((p: any) => p.pid === pid);
                     if (procObj) {
                         cpuVal = procObj.cpu;
                         memVal = (procObj as any).memRss ? (procObj as any).memRss * 1024 : 0; 
@@ -193,7 +186,7 @@ while($true) {
                 const [netAdapters, diskIo] = await Promise.all([si.networkStats('*'), si.disksIO()]);
 
                 const now = Date.now();
-                const preferred = netAdapters.find(n => !n.iface.toLowerCase().includes('loopback')) ?? netAdapters[0];
+                const preferred = netAdapters.find((n: any) => !n.iface.toLowerCase().includes('loopback')) ?? netAdapters[0];
 
                 let netRx = 0;
                 if (preferred) {
@@ -235,15 +228,15 @@ while($true) {
         if (!input) {return;}
 
         try {
-            const { default: psList } = await import('ps-list');
-            const processes = await psList();
+            const processesData = await si.processes();
+            const processes = processesData.list;
             
             const num = parseInt(input);
             const isNum = !isNaN(num) && num.toString() === input;
             
             const proc = processes
-                .filter(p => (isNum && p.pid === num) || p.name.toLowerCase().includes(input.toLowerCase()))
-                .sort((a, b) => (b.cpu ?? 0) - (a.cpu ?? 0))[0];
+                .filter((p: any) => (isNum && p.pid === num) || p.name.toLowerCase().includes(input.toLowerCase()))
+                .sort((a: any, b: any) => (b.cpu ?? 0) - (a.cpu ?? 0))[0];
 
             if (proc) {
                 this.startMonitoring(proc.pid, proc.name);
@@ -274,21 +267,21 @@ while($true) {
                 searchNames = ['dotnet'];
             }
 
-            const { default: psList } = await import('ps-list');
-            const processes = await psList();
+            const processesData = await si.processes();
+            const processes = processesData.list;
             
             const targetProcs = processes
-                .filter(p => {
+                .filter((p: any) => {
                     const pName = p.name.toLowerCase();
                     // Avoid picking VS Code or itself
-                    if (pName === 'code.exe' || pName === 'code') return false;
-                    const pCmd = (p.cmd || '').toLowerCase();
+                    if (pName === 'code.exe' || pName === 'code') { return false; }
+                    const pCmd = (p.command || '').toLowerCase();
                     
                     return searchNames.some(name => 
                         pName.includes(name) || (pName.includes('dotnet') && pCmd.includes(name + '.dll'))
                     );
                 })
-                .sort((a, b) => (b.cpu ?? 0) - (a.cpu ?? 0));
+                .sort((a: any, b: any) => (b.cpu ?? 0) - (a.cpu ?? 0));
 
             if (targetProcs.length > 0) {
                 this.startMonitoring(targetProcs[0].pid, targetProcs[0].name);
