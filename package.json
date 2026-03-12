@@ -6,7 +6,10 @@
   "author": "Francisco Rojas",
   "license": "MIT",
   "icon": "media/logo.png",
-  
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/franciscorojas27/Resource-Monitor"
+  },
   "engines": {
     "vscode": "^1.110.0"
   },
