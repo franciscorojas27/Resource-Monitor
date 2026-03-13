@@ -12,16 +12,16 @@ const getNonce = () => {
 
 export function activate(context: vscode.ExtensionContext) {
     const log = vscode.window.createOutputChannel("NetMonitor-Debug");
-    log.show();
-    log.appendLine("Extension Started...");
 
     const provider = new DotNetMonitorProvider(log);
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider('dotnet-monitor-view', provider));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider('resource-monitor-view', provider));
 
     vscode.debug.onDidStartDebugSession(() => {
         setTimeout(() => {
             provider.autoAttachProject();
-            vscode.commands.executeCommand('dotnet-monitor-view.focus');
+            vscode.commands.executeCommand('resource-monitor-view.focus').then(undefined, (err) => {
+                log.appendLine("Error: Could not focus view: " + err);
+            });
         }, 2000);
     });
 
@@ -75,11 +75,9 @@ class DotNetMonitorProvider implements vscode.WebviewViewProvider {
 
     public async startMonitoring(pid: number, name: string) {
         if (!this._view) {
-            this._log.appendLine('No active webview to show metrics.');
             return;
         }
         this.stop('Changing process...');
-        this._log.appendLine(`Monitoring PID: ${pid} (${name})`);
 
         this._view?.webview.postMessage({ type: 'status', msg: `LIVE · ${name} (PID ${pid})` });
 
@@ -135,7 +133,6 @@ while($true) {
             const rl = readline.createInterface({ input: this._psProcess.stdout });
             rl.on('line', (line) => {
                 if (line.trim() === 'dead') {
-                    this._log.appendLine(`Process ${pid} has closed.`);
                     this.stop('PROCESS CLOSED');
                     return;
                 }
@@ -224,8 +221,10 @@ while($true) {
     }
 
     private async promptForProcess() {
-        const input = await vscode.window.showInputBox({ prompt: "Enter PID or Name (e.g., dotnet)" });
+        const input = await vscode.window.showInputBox({ prompt: "Enter PID or Name (e.g., dotnet, node, go)" });
         if (!input) {return;}
+
+        this._view?.webview.postMessage({ type: 'status', msg: 'Searching...' });
 
         try {
             const processesData = await si.processes();
@@ -252,20 +251,20 @@ while($true) {
 
     public async autoAttachProject() {
         try {
-            // Find csproj explicitly avoiding unused folders
-            const csprojFiles = await vscode.workspace.findFiles('**/*.csproj', '{**/node_modules/**,**/bin/**,**/obj/**}');
-            let searchNames: string[] = [];
-            
-            if (csprojFiles.length > 0) {
-                searchNames = csprojFiles.map(f => {
-                    const fileName = f.path.split('/').pop() || '';
-                    return fileName.replace('.csproj', '').toLowerCase();
-                });
-                this._log.appendLine("Auto-detecting based on projects: " + searchNames.join(', '));
-            } else {
-                this._log.appendLine("No csproj found. Falling back to 'dotnet'.");
-                searchNames = ['dotnet'];
-            }
+            this._view?.webview.postMessage({ type: 'status', msg: 'Auto-detecting...' });
+
+            const [csprojFiles, packageJsonFiles, cargoFiles, goFiles] = await Promise.all([
+                vscode.workspace.findFiles('**/*.csproj', '{**/node_modules/**,**/bin/**,**/obj/**}'),
+                vscode.workspace.findFiles('**/package.json', '{**/node_modules/**}', 1),
+                vscode.workspace.findFiles('**/Cargo.toml', '{**/target/**}', 1),
+                vscode.workspace.findFiles('**/*.go', '{**/node_modules/**}', 1)
+            ]);
+
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            const folderName = workspaceFolder ? workspaceFolder.name.toLowerCase() : '';
+
+            let csprojNames = csprojFiles.map(f => f.path.split('/').pop()?.replace('.csproj', '').toLowerCase() || '').filter(Boolean);
+            let projName = csprojNames.length > 0 ? csprojNames[0] : folderName;
 
             const processesData = await si.processes();
             const processes = processesData.list;
@@ -273,23 +272,48 @@ while($true) {
             const targetProcs = processes
                 .filter((p: any) => {
                     const pName = p.name.toLowerCase();
-                    // Avoid picking VS Code or itself
-                    if (pName === 'code.exe' || pName === 'code') { return false; }
                     const pCmd = (p.command || '').toLowerCase();
                     
-                    return searchNames.some(name => 
-                        pName.includes(name) || (pName.includes('dotnet') && pCmd.includes(name + '.dll'))
-                    );
+                    // Exclude VS Code itself and system processes
+                    if (pName.includes('code') || pCmd.includes('vscode') || pCmd.includes('extensionhost') || pName === 'svchost.exe') { 
+                        return false; 
+                    }
+
+                    if (csprojNames.length > 0) {
+                        return csprojNames.some(name => 
+                            pName.includes(name) || (pName.includes('dotnet') && pCmd.includes(name + '.dll'))
+                        );
+                    }
+                    if (packageJsonFiles.length > 0) {
+                        return (pName.includes('node') || pName.includes('bun') || pName.includes('deno') || pName.includes('ts-node')) && (pCmd.includes(folderName) || pCmd.includes(projName));
+                    }
+                    if (cargoFiles.length > 0) {
+                        return pName === projName || pName === projName + '.exe' || pCmd.includes(projName) || pName.includes('cargo') || pName.includes('rust');
+                    }
+                    if (goFiles.length > 0) {
+                        return pName === projName || pName === projName + '.exe' || pCmd.includes(projName) || pName.includes('go');
+                    }
+                    
+                    return pName.includes(projName) || pCmd.includes(projName);
                 })
                 .sort((a: any, b: any) => (b.cpu ?? 0) - (a.cpu ?? 0));
 
             if (targetProcs.length > 0) {
-                this.startMonitoring(targetProcs[0].pid, targetProcs[0].name);
+                // If it matched a dotnet process, let's try to pass the actual project name so it doesn't just say 'dotnet'
+                let displayName = targetProcs[0].name;
+                if (displayName.toLowerCase().includes('dotnet') && csprojNames.length > 0) {
+                    const matchedName = csprojNames.find(name => (targetProcs[0].command || '').toLowerCase().includes(name + '.dll'));
+                    if (matchedName) {
+                        displayName = matchedName;
+                    }
+                }
+                this.startMonitoring(targetProcs[0].pid, displayName);
             } else {
-                this._log.appendLine("No match found for csproj system name on debug start.");
+                this._view?.webview.postMessage({ type: 'status', msg: 'No process found' });
             }
         } catch (error: any) {
             this._log.appendLine('Error auto-detecting project: ' + error.message);
+            this._view?.webview.postMessage({ type: 'status', msg: 'Error detecting' });
         }
     }
 

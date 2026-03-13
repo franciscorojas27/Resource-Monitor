@@ -1,7 +1,7 @@
 {
-  "name": "dotnet-monitor-grafic",
-  "displayName": ".NET Recourse Monitor",
-  "description": "Una extensión ligera y sin dependencias para monitorear en tiempo real el CPU, Memoria, Disco y Red de tus aplicaciones .NET directamente en VS Code.",
+  "name": "resource-monitor",
+  "displayName": "Resource Monitor (.NET, Go, JS/TS, Rust)",
+  "description": "Extensión ligera para monitorear en tiempo real CPU, Memoria, Disco y Red de tus proyectos .NET, Golang, JS/TS y Rust. Permite buscar el proceso por PID o Nombre.",
   "version": "0.0.1",
   "author": "Francisco Rojas",
   "license": "MIT",
@@ -26,17 +26,17 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "dotnet-monitor-container",
-          "title": ".NET Monitor",
+          "id": "resource-monitor-container",
+          "title": "Resource Monitor",
           "icon": "$(pulse)"
         }
       ]
     },
     "views": {
-      "dotnet-monitor-container": [
+      "resource-monitor-container": [
         {
           "type": "webview",
-          "id": "dotnet-monitor-view",
+          "id": "resource-monitor-view",
           "icon": "$(pulse)",
           "name": "Métricas de Rendimiento"
         }
